@@ -1,0 +1,95 @@
+version: '3'
+
+silent: true
+
+dotenv: ['./env']
+
+vars:
+  migrationDir: ./migrations
+  currentTime:
+    sh: date --iso-8601=seconds
+  gitVersion:
+    sh: git describe --always --dirty --tags --long
+  binaryVersion: 1.0.0
+  linkerFlags: -s -X main.buildTime={{.currentTime}} -X main.gitVersion={{.gitVersion}} -X main.binaryVersion={{.binaryVersion}}
+
+tasks:
+  help:
+    cmds:
+      - task --list
+
+  confirm_task:
+    prompt:
+      - Do you want to continue [y/N]?
+
+  build_bot:
+    desc: Build bot binary.
+    cmds:
+      - echo 'Building...'
+      - go build -ldflags='{{.linkerFlags}}' -o ./bin/{{.binaryVersion}} ./cmd/
+      - GOOS=linux GOARCH=amd64 go build -ldflags='{{.linkerFlags}}' -o ./bin/linux_amd64/bot ./cmd/
+      - echo 'Building Complete'
+
+  clean:
+    desc: Clean up the the project
+    cmds:
+      - echo "Cleaning up..."
+      - go mod tidy
+
+  test:
+    desc: Run all tests.
+    cmds:
+      - echo "Running all tests..."
+      - go test race -vet=off ./...
+
+  audit:
+    desc: Tidy dependencies and format, vet and test all code
+    cmds:
+      - echo "Running Audit"
+      - echo "Tidying..."
+      - go mod tidy
+      - echo "Verifying..."
+      - go mod verify
+      - echo "Formatting codes..."
+      - go fmt ./...
+      - echo "Vetting codes..."
+      - go vet ./...
+      - echo "Running Tests"
+      - go test -race -vet=off ./...
+      - echo "Audit Complete"
+
+  run:
+    desc: Run the the project
+    cmds:
+      - echo "Running the project..."
+      - go run ./cmd/
+
+  migrator_new:
+    desc: Create a new migration script
+    cmds:
+      - echo "Creating migration files for {{.name}}"
+      - migrate create -seq -ext=.sql -dir={{.migrationDir}} {{.name}}
+
+  migrator_down:
+    desc: Run migration down scripts
+    cmds:
+      - echo "Running migrations down..."
+      - migrate -path={{.migrationDir}} -database $DB_DSN down
+
+  migrator_up:
+    desc: Run migration up scripts
+    cmds:
+      - echo "Running migrations up..."
+      - migrate -path={{.migrationDir}} -database $DB_DSN up
+
+  migrator_fix:
+    desc: Fix migration scripts (task migrator_fix -- 1)
+    cmds:
+      - echo "Fixing migrations..."
+      - migrate -path={{.migrationDir}} -database $DB_DSN force {{.CLI_ARGS}}
+      - echo "Current Migration version - {{.CLI_ARGS}}"
+
+  migrator_version:
+    desc: View migration version
+    cmds:
+      - migrate -path={{.migrationDir}} -database $DATABASE_URL version
