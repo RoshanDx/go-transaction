@@ -1,9 +1,17 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "query.sql"
+    queries: "./query"
     schema: "./migrations"
     gen:
       go:
-        package: "user"
-        out: "user"
+        package: "repository"
+        out: "repository"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        overrides:
+          - db_type: "timestamptz"
+            go_type:
+              import: "time"
+              type: "Time"

@@ -1,15 +1,14 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
+	"go-transaction/repository"
+	"go-transaction/user"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 )
 
 func main() {
@@ -19,32 +18,42 @@ func main() {
 		log.Fatalf("unable to load env")
 	}
 
+	ctx := context.Background()
+
 	postgresURI := os.Getenv("DATABASE_URL")
-	db, err := sql.Open("postgres", postgresURI)
+
+	connPool, err := pgxpool.New(ctx, postgresURI)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(fmt.Errorf("unable to connect to database: %w", err))
 	}
-	err = db.Ping()
-	if err != nil {
-		_ = db.Close()
-		log.Panic(err)
-	}
+	defer connPool.Close()
 
 	fmt.Println("connected to database")
 
-	// keep the program running
-	go forever()
+	store := repository.NewPostgresRepository(connPool)
+	userService := user.NewService(store)
 
-	quitChannel := make(chan os.Signal, 1)
-	signal.Notify(quitChannel, syscall.SIGINT, syscall.SIGTERM)
-	<-quitChannel
-	//time for cleanup before exit
-	fmt.Println("Adios!")
-}
-
-func forever() {
-	for {
-		fmt.Printf("%v+\n", time.Now())
-		time.Sleep(10 * time.Second)
+	result, err := userService.CreateUser(&user.User{
+		Username: "gohan",
+		Activate: true,
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	fmt.Println("created user", result)
+
+	//keep the program running
+	//go func() {
+	//	for {
+	//		fmt.Printf("%v+\n", time.Now())
+	//		time.Sleep(10 * time.Second)
+	//	}
+	//}()
+	//
+	//quitChannel := make(chan os.Signal, 1)
+	//signal.Notify(quitChannel, syscall.SIGINT, syscall.SIGTERM)
+	//<-quitChannel
+	////time for cleanup before exit
+	//fmt.Println("Adios!")
 }

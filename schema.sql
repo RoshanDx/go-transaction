@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS users
 (
-    id        BIGSERIAL PRIMARY KEY,
-    username  TEXT NOT NULL UNIQUE,
-    firstname TEXT NULL,
-    activated BOOL NOT NULL DEFAULT FALSE
+    id         BIGSERIAL PRIMARY KEY,
+    username   TEXT                           NOT NULL UNIQUE,
+    firstname  TEXT                           NULL,
+    activated  BOOL                           NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS roles
@@ -26,4 +27,4 @@ INSERT INTO users (username, firstname, activated) VALUES ('goku', 'san', true);
 INSERT INTO roles (name) VALUES ('user');
 INSERT INTO roles (name) VALUES ('admin');
 
-INSERT INTO user_role (user_id, role_id) VALUES (1,1);
+INSERT INTO user_role (user_id, role_id) VALUES (1, 1);

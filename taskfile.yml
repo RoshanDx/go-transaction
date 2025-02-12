@@ -2,7 +2,7 @@ version: '3'
 
 silent: true
 
-dotenv: ['./env']
+dotenv: ['.env']
 
 vars:
   migrationDir: ./migrations
@@ -74,19 +74,19 @@ tasks:
     desc: Run migration down scripts
     cmds:
       - echo "Running migrations down..."
-      - migrate -path={{.migrationDir}} -database $DB_DSN down
+      - migrate -path={{.migrationDir}} -database $DATABASE_URL down
 
   migrator_up:
     desc: Run migration up scripts
     cmds:
       - echo "Running migrations up..."
-      - migrate -path={{.migrationDir}} -database $DB_DSN up
+      - migrate -path={{.migrationDir}} -database $DATABASE_URL up
 
   migrator_fix:
     desc: Fix migration scripts (task migrator_fix -- 1)
     cmds:
       - echo "Fixing migrations..."
-      - migrate -path={{.migrationDir}} -database $DB_DSN force {{.CLI_ARGS}}
+      - migrate -path={{.migrationDir}} -database $DATABASE_URL force {{.CLI_ARGS}}
       - echo "Current Migration version - {{.CLI_ARGS}}"
 
   migrator_version:
