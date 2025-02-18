@@ -6,35 +6,22 @@ import (
 	"go-transaction/repository"
 )
 
-type Service struct {
+type Repository struct {
 	store repository.Repository
 }
 
-func NewService(store repository.Repository) *Service {
-	return &Service{store: store}
+func NewUserStore(store repository.Repository) Repository {
+	return Repository{store}
 }
 
-type User struct {
-	ID        int64
-	Username  string
-	Firstname *string
-	Activate  bool
-	Role      string
-}
+func (s Repository) CreateUser(ctx context.Context, user *User) error {
 
-func (s Service) CreateUser(req *User) (*User, error) {
-	var result *User
-	ctx := context.Background()
-
-	// do some check
-
-	// commit transaction
 	if err := s.store.RunInTx(ctx, func(q repository.ExtendedQuerier) error {
 
 		user, err := q.CustomCreateUser(ctx, repository.InsertUserParams{
-			Username:  req.Username,
-			Firstname: req.Firstname,
-			Activated: req.Activate,
+			Username:  user.Username,
+			Firstname: user.Firstname,
+			Activated: user.Activate,
 		})
 		if err != nil {
 			return fmt.Errorf("InsertUser: %w", err)
@@ -53,17 +40,10 @@ func (s Service) CreateUser(req *User) (*User, error) {
 			return fmt.Errorf("AssignUserRole: %w", err)
 		}
 
-		result = &User{
-			ID:        user.ID,
-			Username:  user.Username,
-			Firstname: user.Firstname,
-			Activate:  user.Activated,
-			Role:      role.Name,
-		}
 		return nil
-
 	}); err != nil {
-		return nil, err
+		return err
 	}
-	return result, nil
+
+	return nil
 }

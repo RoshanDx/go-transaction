@@ -1,59 +1,42 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"go-transaction/repository"
-	"go-transaction/user"
+	"go-transaction/runner"
 	"log"
-	"os"
+	"net"
+	"net/http"
+	"time"
 )
 
 func main() {
-	// load .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("unable to load env")
-	}
-
-	ctx := context.Background()
-
-	postgresURI := os.Getenv("DATABASE_URL")
-
-	connPool, err := pgxpool.New(ctx, postgresURI)
-	if err != nil {
-		log.Fatal(fmt.Errorf("unable to connect to database: %w", err))
-	}
-	defer connPool.Close()
-
-	fmt.Println("connected to database")
-
-	store := repository.NewPostgresRepository(connPool)
-	userService := user.NewService(store)
-
-	result, err := userService.CreateUser(&user.User{
-		Username: "gohan",
-		Activate: true,
+	mux1 := http.NewServeMux()
+	mux1.HandleFunc("/serverone", func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprintf(writer, "Hello, world from server-1\n")
 	})
-	if err != nil {
+
+	httpServer1 := &http.Server{
+		Addr:         net.JoinHostPort("localhost", "8080"),
+		Handler:      mux1,
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("/servertwo", func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprintf(writer, "Hello, world from server-2\n")
+	})
+
+	httpServer2 := &http.Server{
+		Addr:         net.JoinHostPort("localhost", "8081"),
+		Handler:      mux2,
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	if err := runner.Run(httpServer1, httpServer2); err != nil {
 		log.Fatal(err)
 	}
-
-	fmt.Println("created user", result)
-
-	//keep the program running
-	//go func() {
-	//	for {
-	//		fmt.Printf("%v+\n", time.Now())
-	//		time.Sleep(10 * time.Second)
-	//	}
-	//}()
-	//
-	//quitChannel := make(chan os.Signal, 1)
-	//signal.Notify(quitChannel, syscall.SIGINT, syscall.SIGTERM)
-	//<-quitChannel
-	////time for cleanup before exit
-	//fmt.Println("Adios!")
 }
