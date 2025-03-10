@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -12,31 +11,87 @@ import (
 	"time"
 )
 
-func Run(serverOne *http.Server, serverTwo *http.Server) error {
+type JobType string
 
-	var wg sync.WaitGroup
+// JobRunner defines the interface for background job execution.
+type JobRunner interface {
+	RunJob(ctx context.Context, jobName JobType, fn func())
+}
+
+// Receiver defines the interface for running receivers in Run
+type Receiver interface {
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
+type Runner struct {
+	wg        sync.WaitGroup
+	receivers []Receiver
+}
+
+func New(options ...func(runner *Runner) error) (*Runner, error) {
+	runner := &Runner{}
+	for _, option := range options {
+		if err := option(runner); err != nil {
+			return nil, err
+		}
+	}
+	return runner, nil
+}
+
+func WithReceiver(receivers ...Receiver) func(*Runner) error {
+	return func(runner *Runner) error {
+		if receivers == nil {
+			return errors.New("receivers is empty")
+		}
+		runner.receivers = receivers
+		return nil
+	}
+}
+
+func NewWithRunners(receivers ...Receiver) (*Runner, error) {
+	if len(receivers) == 0 {
+		return nil, errors.New("receivers is empty")
+	}
+	return &Runner{
+		receivers: receivers,
+	}, nil
+}
+
+func (r *Runner) AddReceivers(receivers ...Receiver) {
+	r.receivers = append(r.receivers, receivers...)
+}
+
+func (r *Runner) Run() error {
+
+	if len(r.receivers) == 0 {
+		return errors.New("receivers is empty")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	signalChan := make(chan os.Signal, 1)
-	errChan := make(chan error, 2)
+	errChan := make(chan error, len(r.receivers))
 
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	fmt.Println("Starting receivers...")
 
-	wg.Add(2)
-	go ServerOneStart(ctx, serverOne, errChan, &wg)
-	go ServerTwoStart(ctx, serverTwo, errChan, &wg)
-
-	wg.Add(1)
-	go DoWork(ctx, errChan, &wg)
+	for _, receiver := range r.receivers {
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			if err := receiver.Start(ctx); err != nil {
+				errChan <- err
+			}
+		}()
+	}
 
 	select {
 	case sign := <-signalChan:
 		fmt.Println("📡 Signal caught:", sign.String())
-		cancel() // send cancellation to all goroutine
+		cancel()
 	case err := <-errChan:
 		fmt.Println("❌ Error caught:", err.Error())
 		return err
@@ -48,8 +103,11 @@ func Run(serverOne *http.Server, serverTwo *http.Server) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ServerOneStop(shutdownCtx, serverOne, errChan, &wg)
-	ServerTwoStop(shutdownCtx, serverTwo, errChan, &wg)
+	for _, receiver := range r.receivers {
+		if err := receiver.Stop(shutdownCtx); err != nil {
+			errChan <- err
+		}
+	}
 
 	//Wait for either shutdown completion or timeout
 	select {
@@ -61,70 +119,36 @@ func Run(serverOne *http.Server, serverTwo *http.Server) error {
 		fmt.Println("✅ All runners stopped gracefully")
 	}
 
-	wg.Wait()
-	close(errChan)
-	fmt.Println("✅ Shutdown completed")
+	fmt.Println("👷 Completing remaining job runner")
+	r.wg.Wait()
+	fmt.Println("✅ All job runner stopped gracefully")
 
-	//log remaining shutdown errors
+	close(errChan)
+
+	fmt.Println("🛑 Shutdown completed")
+
+	//log remaining errors
 	for err := range errChan {
-		fmt.Println("⚠️ Shutdown error:", err)
+		fmt.Println("⚠️ Runner error:", err)
 	}
 
 	return nil
 }
 
-func ServerOneStart(ctx context.Context, httpServer *http.Server, errCh chan<- error, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (r *Runner) RunJob(ctx context.Context, jobName JobType, fn func()) {
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		defer func() {
+			if err := recover(); err != nil {
+				fmt.Println(fmt.Sprintf("background job fail to execute: %v", err))
+			}
+		}()
 
-	fmt.Println(fmt.Sprintf("🚀 Starting server-1"))
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		errCh <- errors.New("unable to start server-1")
-	}
-}
+		// run job
+		fmt.Printf("🚧 Background job started: %s\n", jobName)
+		fn()
+		fmt.Printf("🚧 Background job completed: %s\n", jobName)
 
-func ServerOneStop(ctx context.Context, httpServer *http.Server, errCh chan<- error, wg *sync.WaitGroup) {
-	fmt.Println(fmt.Sprintf("🛑 Stopping server-1"))
-	if err := httpServer.Shutdown(ctx); err != nil {
-		errCh <- errors.New("unable to shutdown server-1")
-	}
-}
-
-func ServerTwoStart(ctx context.Context, httpServer *http.Server, errCh chan<- error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	fmt.Println(fmt.Sprintf("🚀 Starting server-2"))
-	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		errCh <- errors.New("❌ unable to start server-2")
-	}
-}
-
-func ServerTwoStop(ctx context.Context, httpServer *http.Server, errCh chan<- error, wg *sync.WaitGroup) {
-
-	// Simulate error or timeout
-	//errCh <- errors.New("❌ simulate error from stopping server-2")
-	//time.Sleep(13 * time.Second)
-
-	fmt.Println(fmt.Sprintf("🛑 Stopping server-2"))
-	if err := httpServer.Shutdown(ctx); err != nil {
-		errCh <- errors.New("unable to shutdown server-2")
-	}
-}
-
-func DoWork(ctx context.Context, errCh chan<- error, wg *sync.WaitGroup) {
-	defer wg.Done()
-	fmt.Println("🚧 Doing work...")
-	workerNum := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			time.Sleep(3 * time.Second)
-			workerNum += 1
-			fmt.Println(fmt.Sprintf("👷 Worker-%d completed", workerNum))
-		}
-		//if workerNum == 3 {
-		//	errCh <- errors.New("❌ simulate error from Worker-3")
-		//}
-	}
+	}()
 }
